@@ -83,6 +83,15 @@ class ArucoNode(rclpy.node.Node):
         )
 
         self.declare_parameter(
+            name="annotated_image_topic",
+            value="/camera/image_aruco",
+            descriptor=ParameterDescriptor(
+                type=ParameterType.PARAMETER_STRING,
+                description="Image with annotated aruco markers.",
+            ),
+        )
+
+        self.declare_parameter(
             name="camera_frame",
             value="",
             descriptor=ParameterDescriptor(
@@ -105,6 +114,11 @@ class ArucoNode(rclpy.node.Node):
             self.get_parameter("image_topic").get_parameter_value().string_value
         )
         self.get_logger().info(f"Image topic: {image_topic}")
+
+        annotated_image_topic = (
+            self.get_parameter("annotated_image_topic").get_parameter_value().string_value
+        )
+        self.get_logger().info(f"Annotated image topic: {annotated_image_topic}")
 
         info_topic = (
             self.get_parameter("camera_info_topic").get_parameter_value().string_value
@@ -139,6 +153,7 @@ class ArucoNode(rclpy.node.Node):
         # Set up publishers
         self.poses_pub = self.create_publisher(PoseArray, "aruco_poses", 10)
         self.markers_pub = self.create_publisher(ArucoMarkers, "aruco_markers", 10)
+        self.image_pub = self.create_publisher(Image, annotated_image_topic, 10)
 
         # Set up fields for camera parameters
         self.info_msg = None
@@ -161,7 +176,7 @@ class ArucoNode(rclpy.node.Node):
             self.get_logger().warn("No camera info has been received!")
             return
 
-        cv_image = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding="mono8")
+        cv_image = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding="bgr8")
         markers = ArucoMarkers()
         pose_array = PoseArray()
         if self.camera_frame == "":
@@ -204,6 +219,26 @@ class ArucoNode(rclpy.node.Node):
                 pose_array.poses.append(pose)
                 markers.poses.append(pose)
                 markers.marker_ids.append(marker_id[0])
+
+                # annotate the image
+                cv2.aruco.drawAxis(
+                    cv_image,
+                    self.intrinsic_mat,
+                    self.distortion,
+                    rvecs[i],
+                    tvecs[i],
+                    self.marker_size,
+                )
+                cv2.aruco.drawDetectedMarkers(cv_image, corners)
+
+                # add id to image
+                cX, cY = int(corners[i][0][:, 0].mean()), int(corners[i][0][:, 1].mean())
+                cv2.putText(cv_image, str(marker_id[0]), (cX, cY), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
+                annotated_image = self.bridge.cv2_to_imgmsg(cv_image, encoding='bgr8')
+                annotated_image.header = img_msg.header
+                self.image_pub.publish(annotated_image)
+
 
             self.poses_pub.publish(pose_array)
             self.markers_pub.publish(markers)
