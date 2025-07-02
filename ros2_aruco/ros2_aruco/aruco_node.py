@@ -221,7 +221,7 @@ class ArucoNode(rclpy.node.Node):
                 markers.marker_ids.append(marker_id[0])
 
                 # annotate the image
-                cv2.aruco.drawAxis(
+                cv2.drawFrameAxes(
                     cv_image,
                     self.intrinsic_mat,
                     self.distortion,
